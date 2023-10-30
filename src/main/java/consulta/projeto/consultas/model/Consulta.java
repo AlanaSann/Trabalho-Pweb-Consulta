@@ -20,7 +20,8 @@ public class Consulta {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private Long idMedico;
-    private Long idPaciente;
+    private String crm;
+    private String cpf;
     private LocalDateTime dataHora;
+    private MotivoCancelamento motivoCancelamento;
 }
