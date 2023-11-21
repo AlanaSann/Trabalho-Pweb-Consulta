@@ -41,9 +41,12 @@ public class ConsultaService {
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
-    public void enviarMensagem(String cpfPaciente) {
+    public void enviarMensagem(ConsultaFormulario consulta) {
+        byte[] crm = consulta.getCrm().getBytes();
         Mensagem mensagem = new Mensagem();
-        mensagem.setCpf(cpfPaciente);
+        mensagem.setCpf(consulta.getCpf().getBytes());
+        mensagem.setCrmMedico(crm);
+        mensagem.setDataConsulta(consulta.getDataHora());
         rabbitTemplate.convertAndSend("AgendamentosQueue", mensagem);
     }
 
@@ -66,15 +69,16 @@ public class ConsultaService {
 
     public Consulta agendarConsulta(ConsultaFormulario consulta) {
 
-        // if (escolheMedico(consulta.getCrm())) {
-        //     consulta.setCrm(escolherMedicoAleatorio(consulta.getDataHora()));
-        // } else {
-        //    // medicoExiste(consulta.getCrm());
-        //    // medicoTemDisponibilidadeNessaHora(consulta.getCrm(), consulta.getDataHora());
-        // }
+        if (escolheMedico(consulta.getCrm())) {
+        consulta.setCrm(escolherMedicoAleatorio(consulta.getDataHora()));
+        } else {
+        medicoExiste(consulta.getCrm());
+        medicoTemDisponibilidadeNessaHora(consulta.getCrm(),
+        consulta.getDataHora());
+        }
         pacienteExiste(consulta.getCpf());
         unicaConsultaDoDia(consulta.getCpf(), consulta.getDataHora().withHour(0));
-        this.enviarMensagem(consulta.getCpf());
+        //this.enviarMensagem(consulta);
         return consultaRepository.save(conversor.map(consulta, Consulta.class));
     }
 
