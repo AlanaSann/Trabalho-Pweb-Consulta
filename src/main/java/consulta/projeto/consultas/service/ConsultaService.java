@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.stream.Collectors;
 
 import org.modelmapper.ModelMapper;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.HttpStatus;
@@ -14,6 +15,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import consulta.projeto.consultas.config.amqp.Mensagem;
 import consulta.projeto.consultas.dto.MedicoDto;
 import consulta.projeto.consultas.form.CancelamentoFormulario;
 import consulta.projeto.consultas.form.ConsultaFormulario;
@@ -36,83 +38,93 @@ public class ConsultaService {
     private FeignClientMedico feignClientMedico;
     @Autowired
     private FeignClientPaciente feignClientPaciente;
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
 
+    public void enviarMensagem(String cpfPaciente) {
+        Mensagem mensagem = new Mensagem();
+        mensagem.setCpf(cpfPaciente);
+        rabbitTemplate.convertAndSend("AgendamentosQueue", mensagem);
+    }
 
-    public void cancelarConsulta(CancelamentoFormulario cancela){
+    public void cancelarConsulta(CancelamentoFormulario cancela) {
         Consulta consulta = consultaExiste(cancela.getConsultaId());
         antecedencia24Horas(consulta);
         consulta.setMotivoCancelamento(cancela.getMotivo());
         consultaRepository.save(consulta);
     }
 
-    public void antecedencia24Horas(Consulta consulta){
+    public void antecedencia24Horas(Consulta consulta) {
         CancelarValidacao cancelarValidacao = new CancelarValidacao(consulta);
         cancelarValidacao.validar();
     }
 
-    public Consulta consultaExiste(Long id){
-        return consultaRepository.findById(id).orElseThrow(()->new ResponseStatusException(HttpStatusCode.valueOf(404)));
+    public Consulta consultaExiste(Long id) {
+        return consultaRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404)));
     }
-    
-    public Consulta agendarConsulta(ConsultaFormulario consulta){
 
-        if (escolheMedico(consulta.getCrm())) {
-            consulta.setCrm(escolherMedicoAleatorio(consulta.getDataHora()));
-        }else{
-        medicoExiste(consulta.getCrm());
-        medicoTemDisponibilidadeNessaHora(consulta.getCrm(), consulta.getDataHora());
-        }
+    public Consulta agendarConsulta(ConsultaFormulario consulta) {
+
+        // if (escolheMedico(consulta.getCrm())) {
+        //     consulta.setCrm(escolherMedicoAleatorio(consulta.getDataHora()));
+        // } else {
+        //    // medicoExiste(consulta.getCrm());
+        //    // medicoTemDisponibilidadeNessaHora(consulta.getCrm(), consulta.getDataHora());
+        // }
         pacienteExiste(consulta.getCpf());
-        unicaConsultaDoDia(consulta.getCpf(),consulta.getDataHora().withHour(0));
+        unicaConsultaDoDia(consulta.getCpf(), consulta.getDataHora().withHour(0));
+        this.enviarMensagem(consulta.getCpf());
         return consultaRepository.save(conversor.map(consulta, Consulta.class));
     }
 
-    private boolean escolheMedico(String crm){
+    private boolean escolheMedico(String crm) {
         return crm == null;
     }
 
-    private List<MedicoDto> listarMedicos(){
+    private List<MedicoDto> listarMedicos() {
         try {
             return feignClientMedico.listarMedicos();
         } catch (Exception e) {
-             throw new ResponseStatusException(HttpStatus.REQUEST_TIMEOUT,"Serviço de medico offline");
+            throw new ResponseStatusException(HttpStatus.REQUEST_TIMEOUT, "Serviço de medico offline");
         }
     }
 
-
-    private String escolherMedicoAleatorio(LocalDateTime data){
-        List<String> lista = listarMedicos().stream().map(m->m.getCrm()).collect(Collectors.toList());
-        List<String> medicosIndisponiveis = consultaRepository.medicosIndisponiveis(data.minusHours(1), data.plusHours(1));
+    private String escolherMedicoAleatorio(LocalDateTime data) {
+        List<String> lista = listarMedicos().stream().map(m -> m.getCrm()).collect(Collectors.toList());
+        List<String> medicosIndisponiveis = consultaRepository.medicosIndisponiveis(data.minusHours(1),
+                data.plusHours(1));
         lista.removeAll(medicosIndisponiveis);
         Random random = new Random();
         if (lista.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "equipe medica indisponivel");
         }
-        return lista.get(random.nextInt(0,lista.size()));
+        return lista.get(random.nextInt(0, lista.size()));
     }
 
-    private void unicaConsultaDoDia(String cpf, LocalDateTime data){
+    private void unicaConsultaDoDia(String cpf, LocalDateTime data) {
         if (consultaRepository.jaTemConsulta(cpf, data) != null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "paciente não pode marcar mais de uma consulta por dia");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "paciente não pode marcar mais de uma consulta por dia");
         }
     }
 
-    private void medicoTemDisponibilidadeNessaHora(String crm, LocalDateTime data){
-        if(consultaRepository.jaTemConsultaNessaHora(crm, data.minusHours(1), data.plusHours(1)) != null){
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Medico não tem disponibilidade nessa hora");
+    private void medicoTemDisponibilidadeNessaHora(String crm, LocalDateTime data) {
+        if (consultaRepository.jaTemConsultaNessaHora(crm, data.minusHours(1), data.plusHours(1)) != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Medico não tem disponibilidade nessa hora");
         }
     }
 
-    private void medicoExiste(String crm){
+    private void medicoExiste(String crm) {
         try {
-        feignClientMedico.medicoExiste(crm);
-   
+            feignClientMedico.medicoExiste(crm);
+
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Medico não está cadastrado");
-        }  
+        }
     }
 
-    private void pacienteExiste(String cpf){
+    private void pacienteExiste(String cpf) {
         try {
             feignClientPaciente.pacienteExiste(cpf);
         } catch (Exception e) {
@@ -120,7 +132,7 @@ public class ConsultaService {
         }
     }
 
-    public void consultaValidacao(ConsultaFormulario consulta){
+    public void consultaValidacao(ConsultaFormulario consulta) {
         Validacao validacao = new AgendarValidacao(consulta);
         validacao.validar();
     }
