@@ -8,10 +8,12 @@ import java.util.stream.Collectors;
 
 import org.modelmapper.ModelMapper;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -42,11 +44,11 @@ public class ConsultaService {
     private RabbitTemplate rabbitTemplate;
 
     public void enviarMensagem(ConsultaFormulario consulta) {
-        byte[] crm = consulta.getCrm().getBytes();
+        String crm = consulta.getCrm();
         Mensagem mensagem = new Mensagem();
-        mensagem.setCpf(consulta.getCpf().getBytes());
+        mensagem.setCpf(consulta.getCpf());
         mensagem.setCrmMedico(crm);
-        mensagem.setDataConsulta(consulta.getDataHora());
+        mensagem.setDataConsulta(consulta.getDataHora().toString());
         rabbitTemplate.convertAndSend("AgendamentosQueue", mensagem);
     }
 
@@ -70,15 +72,16 @@ public class ConsultaService {
     public Consulta agendarConsulta(ConsultaFormulario consulta) {
 
         if (escolheMedico(consulta.getCrm())) {
-        consulta.setCrm(escolherMedicoAleatorio(consulta.getDataHora()));
+            consulta.setCrm(escolherMedicoAleatorio(consulta.getDataHora()));
         } else {
-        medicoExiste(consulta.getCrm());
-        medicoTemDisponibilidadeNessaHora(consulta.getCrm(),
-        consulta.getDataHora());
+             medicoExiste(consulta.getCrm());
+             medicoTemDisponibilidadeNessaHora(consulta.getCrm(),
+             consulta.getDataHora());
         }
         pacienteExiste(consulta.getCpf());
         unicaConsultaDoDia(consulta.getCpf(), consulta.getDataHora().withHour(0));
-        //this.enviarMensagem(consulta);
+        this.enviarMensagem(consulta);
+
         return consultaRepository.save(conversor.map(consulta, Consulta.class));
     }
 
@@ -122,7 +125,6 @@ public class ConsultaService {
     private void medicoExiste(String crm) {
         try {
             feignClientMedico.medicoExiste(crm);
-
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Medico não está cadastrado");
         }
