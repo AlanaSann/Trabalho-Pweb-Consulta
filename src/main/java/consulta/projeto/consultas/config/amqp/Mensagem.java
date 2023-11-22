@@ -7,21 +7,11 @@ import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 
+@Data
 @Getter
-public class Mensagem implements Serializable{
-    private byte[] cpf;
-    private byte[] crmMedico;
-    private LocalDateTime dataConsulta;
+public class Mensagem {
+    private String cpf;
+    private String crmMedico;
+    private String dataConsulta;
 
-    public void setCpf(byte[] cpf) {
-        this.cpf = cpf;
-    }
-    public void setCrmMedico(byte[] crmMedico) {
-        this.crmMedico = crmMedico;
-    }
-    public void setDataConsulta(LocalDateTime dataConsulta) {
-        this.dataConsulta = dataConsulta;
-    }
-
-    
 }
